@@ -2,7 +2,6 @@ package web
 
 import (
 	"embed"
-	"errors"
 	"html/template"
 	"io"
 	"io/fs"
@@ -18,35 +17,21 @@ var archiveTemplate = template.Must(template.ParseFS(assets, "static/archive.htm
 type cachedRangeFile struct {
 	fs.File
 	seeker io.ReadSeeker
-	closed bool
 }
 
 func (f *cachedRangeFile) Read(p []byte) (int, error) {
-	if f.closed {
-		return 0, fs.ErrClosed
-	}
 	return f.seeker.Read(p)
 }
 
 func (f *cachedRangeFile) Seek(offset int64, whence int) (int64, error) {
-	if f.closed {
-		return 0, fs.ErrClosed
-	}
 	return f.seeker.Seek(offset, whence)
 }
 
 func (f *cachedRangeFile) Stat() (fs.FileInfo, error) {
-	if f.closed {
-		return nil, fs.ErrClosed
-	}
 	return f.File.Stat()
 }
 
 func (f *cachedRangeFile) Close() error {
-	if f.closed {
-		return errors.New("cached range file already closed")
-	}
-	f.closed = true
 	return f.File.Close()
 }
 
@@ -98,7 +83,6 @@ func (s *Server) serveRangeAsset(w http.ResponseWriter, r *http.Request, name st
 		s.rangeFiles[name] = cached
 		file = cached
 	}
-	defer file.Close()
 	info, err := file.Stat()
 	if err != nil {
 		handleError(w, err)
