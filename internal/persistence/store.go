@@ -22,7 +22,6 @@ type Store struct {
 	receipts  string
 	mu        sync.Mutex
 	sequence  int64
-	eventFile *os.File
 }
 
 func Open(dir string) (*Store, error) {
@@ -190,27 +189,41 @@ func (s *Store) PreviousResult(applicationID, operation, requestID string) (Comm
 func (s *Store) Events(applicationID string) ([]EventRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	file, err := os.Open(s.eventPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return []EventRecord{}, nil
-	}
+	files, err := s.eventLogFiles()
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	seen := make(map[int64]bool)
 	var result []EventRecord
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		var event EventRecord
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
-			return nil, fmt.Errorf("事件日志损坏: %w", err)
+	for _, path := range files {
+		file, err := os.Open(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
 		}
-		if event.ApplicationID == applicationID {
+		if err != nil {
+			return nil, err
+		}
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			var event EventRecord
+			if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+				file.Close()
+				return nil, fmt.Errorf("事件日志损坏: %w", err)
+			}
+			if event.ApplicationID != applicationID || seen[event.Sequence] {
+				continue
+			}
+			seen[event.Sequence] = true
 			result = append(result, event)
 		}
+		file.Close()
+		if err := scanner.Err(); err != nil {
+			return nil, fmt.Errorf("读取事件日志: %w", err)
+		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("读取事件日志: %w", err)
+	sort.Slice(result, func(i, j int) bool { return result[i].Sequence < result[j].Sequence })
+	if result == nil {
+		return []EventRecord{}, nil
 	}
 	return result, nil
 }
@@ -229,19 +242,24 @@ func (s *Store) commit(path string, data snapshotData, operation, requestID stri
 }
 
 func (s *Store) appendEvent(event EventRecord) error {
-	if s.eventFile == nil {
-		file, err := os.OpenFile(s.eventPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-		if err != nil {
-			return fmt.Errorf("打开事件日志: %w", err)
-		}
-		s.eventFile = file
+	// 运维可能在运行期将 events.jsonl 轮转为归档文件并在原路径新建日志。
+	// 缓存的文件句柄会继续指向已重命名的归档 inode，导致新事件写入归档文件、
+	// 当前路径读取不到且重启恢复后序列回退。这里每次按路径打开当前日志，
+	// 保证写入目标始终是 s.eventPath 对应的文件；读取侧通过 eventLogFiles
+	// 同时覆盖归档轮转文件，避免事件丢失或序列回退。
+	file, err := os.OpenFile(s.eventPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("打开事件日志: %w", err)
 	}
 	encoded, err := json.Marshal(event)
 	if err == nil {
-		_, err = s.eventFile.Write(append(encoded, '\n'))
+		_, err = file.Write(append(encoded, '\n'))
 	}
 	if err == nil {
-		err = s.eventFile.Sync()
+		err = file.Sync()
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
 	}
 	if err != nil {
 		return fmt.Errorf("写入事件日志: %w", err)
@@ -337,23 +355,56 @@ func (s *Store) recover() error {
 			return fmt.Errorf("恢复 %s: %w", entry.Name(), err)
 		}
 	}
-	file, err := os.Open(s.eventPath)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+	files, err := s.eventLogFiles()
 	if err != nil {
-		return fmt.Errorf("打开事件日志: %w", err)
+		return fmt.Errorf("扫描事件日志: %w", err)
 	}
-	defer file.Close()
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		var event EventRecord
-		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+	for _, path := range files {
+		file, err := os.Open(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("打开事件日志: %w", err)
+		}
+		scanner := bufio.NewScanner(file)
+		for scanner.Scan() {
+			var event EventRecord
+			if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
+				file.Close()
+				return fmt.Errorf("恢复事件日志: %w", err)
+			}
+			if event.Sequence > s.sequence {
+				s.sequence = event.Sequence
+			}
+		}
+		file.Close()
+		if err := scanner.Err(); err != nil {
 			return fmt.Errorf("恢复事件日志: %w", err)
 		}
-		if event.Sequence > s.sequence {
-			s.sequence = event.Sequence
-		}
 	}
-	return scanner.Err()
+	return nil
+}
+
+// eventLogFiles returns the active events.jsonl and any rotated archive files
+// left in the data directory by external log rotation. Reading all of them
+// ensures events written before rotation remain visible after a reopen and
+// that the in-memory sequence never regresses below an archived sequence.
+func (s *Store) eventLogFiles() ([]string, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var files []string
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".jsonl" {
+			continue
+		}
+		files = append(files, filepath.Join(s.dir, entry.Name()))
+	}
+	sort.Strings(files)
+	return files, nil
 }
