@@ -151,7 +151,11 @@ func (s *Store) SaveReceipt(receipt domain.ArchiveIntegrityReceipt) error {
 	if err := atomicWrite(path, append(raw, '\n')); err != nil {
 		return err
 	}
-	s.receiptCache[receipt.ApplicationID] = &receipt
+	clone, err := cloneReceipt(&receipt)
+	if err != nil {
+		return fmt.Errorf("缓存核验回执: %w", err)
+	}
+	s.receiptCache[receipt.ApplicationID] = clone
 	return nil
 }
 
@@ -159,7 +163,7 @@ func (s *Store) LatestReceipt(applicationID string) (*domain.ArchiveIntegrityRec
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if cached, ok := s.receiptCache[applicationID]; ok {
-		return cached, nil
+		return cloneReceipt(cached)
 	}
 	entries, err := os.ReadDir(s.receipts)
 	if err != nil {
@@ -184,7 +188,11 @@ func (s *Store) LatestReceipt(applicationID string) (*domain.ArchiveIntegrityRec
 		}
 	}
 	if latest != nil {
-		s.receiptCache[applicationID] = latest
+		clone, err := cloneReceipt(latest)
+		if err != nil {
+			return nil, fmt.Errorf("缓存核验回执: %w", err)
+		}
+		s.receiptCache[applicationID] = clone
 	}
 	return latest, nil
 }
@@ -335,6 +343,18 @@ func cloneApplication(input *domain.MigrationApplication) (*domain.MigrationAppl
 		return nil, err
 	}
 	var output domain.MigrationApplication
+	if err := json.Unmarshal(raw, &output); err != nil {
+		return nil, err
+	}
+	return &output, nil
+}
+
+func cloneReceipt(input *domain.ArchiveIntegrityReceipt) (*domain.ArchiveIntegrityReceipt, error) {
+	raw, err := json.Marshal(input)
+	if err != nil {
+		return nil, err
+	}
+	var output domain.ArchiveIntegrityReceipt
 	if err := json.Unmarshal(raw, &output); err != nil {
 		return nil, err
 	}
