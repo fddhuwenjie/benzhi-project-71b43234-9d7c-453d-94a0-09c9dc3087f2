@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"benzhi-project-71b43234-9d7c-453d-94a0-09c9dc3087f2/internal/domain"
@@ -16,6 +17,7 @@ type Service struct {
 	repository        Repository
 	clock             Clock
 	verificationCache map[string]domain.ArchiveIntegrityReceipt
+	verificationMu    sync.Mutex
 }
 
 func NewService(repository Repository, clock Clock) *Service {
@@ -231,9 +233,12 @@ func (s *Service) VerifyArchive(id string, command VerifyArchiveCommand) (domain
 		return domain.ArchiveIntegrityReceipt{}, domain.NewValidation("request_id_required", "request_id", "核验请求必须提供请求标识")
 	}
 	cacheKey := id + "\x00" + command.RequestID
+	s.verificationMu.Lock()
 	if cached, ok := s.verificationCache[cacheKey]; ok {
+		s.verificationMu.Unlock()
 		return cloneIntegrityReceipt(cached), nil
 	}
+	s.verificationMu.Unlock()
 	app, err := s.repository.Load(id)
 	if err != nil {
 		return domain.ArchiveIntegrityReceipt{}, translateRepositoryError(err)
@@ -253,7 +258,13 @@ func (s *Service) VerifyArchive(id string, command VerifyArchiveCommand) (domain
 	if err := s.repository.SaveReceipt(receipt); err != nil {
 		return domain.ArchiveIntegrityReceipt{}, err
 	}
+	s.verificationMu.Lock()
+	if cached, ok := s.verificationCache[cacheKey]; ok {
+		s.verificationMu.Unlock()
+		return cloneIntegrityReceipt(cached), nil
+	}
 	s.verificationCache[cacheKey] = cloneIntegrityReceipt(receipt)
+	s.verificationMu.Unlock()
 	return cloneIntegrityReceipt(receipt), nil
 }
 
