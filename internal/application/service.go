@@ -13,15 +13,16 @@ import (
 )
 
 type Service struct {
-	repository Repository
-	clock      Clock
+	repository        Repository
+	clock             Clock
+	verificationCache map[string]domain.ArchiveIntegrityReceipt
 }
 
 func NewService(repository Repository, clock Clock) *Service {
 	if clock == nil {
 		clock = RealClock{}
 	}
-	return &Service{repository: repository, clock: clock}
+	return &Service{repository: repository, clock: clock, verificationCache: make(map[string]domain.ArchiveIntegrityReceipt)}
 }
 
 func (s *Service) CreateDraft(command CreateDraftCommand) (DetailView, error) {
@@ -225,8 +226,13 @@ func (s *Service) Resubmit(id string, command ResubmitCommand) (DetailView, erro
 }
 
 func (s *Service) VerifyArchive(id string, command VerifyArchiveCommand) (domain.ArchiveIntegrityReceipt, error) {
-	if strings.TrimSpace(command.RequestID) == "" {
+	command.RequestID = strings.TrimSpace(command.RequestID)
+	if command.RequestID == "" {
 		return domain.ArchiveIntegrityReceipt{}, domain.NewValidation("request_id_required", "request_id", "核验请求必须提供请求标识")
+	}
+	cacheKey := id + "\x00" + command.RequestID
+	if cached, ok := s.verificationCache[cacheKey]; ok {
+		return cloneIntegrityReceipt(cached), nil
 	}
 	app, err := s.repository.Load(id)
 	if err != nil {
@@ -247,7 +253,13 @@ func (s *Service) VerifyArchive(id string, command VerifyArchiveCommand) (domain
 	if err := s.repository.SaveReceipt(receipt); err != nil {
 		return domain.ArchiveIntegrityReceipt{}, err
 	}
-	return receipt, nil
+	s.verificationCache[cacheKey] = cloneIntegrityReceipt(receipt)
+	return cloneIntegrityReceipt(receipt), nil
+}
+
+func cloneIntegrityReceipt(receipt domain.ArchiveIntegrityReceipt) domain.ArchiveIntegrityReceipt {
+	receipt.Results = append([]domain.IntegrityCheckResult(nil), receipt.Results...)
+	return receipt
 }
 
 func (s *Service) mutate(id, operation string, meta CommandMeta, change func(*domain.MigrationApplication) (any, error)) (DetailView, error) {
