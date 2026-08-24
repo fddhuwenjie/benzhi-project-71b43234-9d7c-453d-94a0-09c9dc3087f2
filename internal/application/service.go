@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"benzhi-project-71b43234-9d7c-453d-94a0-09c9dc3087f2/internal/domain"
@@ -15,6 +16,9 @@ import (
 type Service struct {
 	repository Repository
 	clock      Clock
+	listOnce   sync.Once
+	listCache  []ApplicationSummary
+	listErr    error
 }
 
 func NewService(repository Repository, clock Clock) *Service {
@@ -88,15 +92,22 @@ func (s *Service) buildDetail(app *domain.MigrationApplication, events []persist
 }
 
 func (s *Service) List() ([]ApplicationSummary, error) {
-	apps, err := s.repository.List()
-	if err != nil {
-		return nil, err
+	s.listOnce.Do(func() {
+		apps, err := s.repository.List()
+		if err != nil {
+			s.listErr = err
+			return
+		}
+		result := make([]ApplicationSummary, 0, len(apps))
+		for _, app := range apps {
+			result = append(result, ApplicationSummary{ID: app.ID, TreeCode: app.TreeCode, Species: app.Species, TargetLocation: app.TargetLocation, Status: app.Status, Revision: app.Revision, UpdatedAt: app.UpdatedAt.Format("2006-01-02 15:04")})
+		}
+		s.listCache = result
+	})
+	if s.listErr != nil {
+		return nil, s.listErr
 	}
-	result := make([]ApplicationSummary, 0, len(apps))
-	for _, app := range apps {
-		result = append(result, ApplicationSummary{ID: app.ID, TreeCode: app.TreeCode, Species: app.Species, TargetLocation: app.TargetLocation, Status: app.Status, Revision: app.Revision, UpdatedAt: app.UpdatedAt.Format("2006-01-02 15:04")})
-	}
-	return result, nil
+	return append([]ApplicationSummary(nil), s.listCache...), nil
 }
 
 func (s *Service) SaveDraft(id string, command SaveDraftCommand) (DetailView, error) {
