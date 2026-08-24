@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>归档摘要 - {{.Application.TreeCode}}</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body class="archive-page">
+  <header class="archive-toolbar"><a class="button secondary" href="/">返回工作台</a>{{if .LatestIntegrityReceipt}}{{if .LatestIntegrityReceipt.Passed}}<button id="print-button" class="button primary" type="button">打印归档</button>{{else}}<button class="button primary" type="button" disabled>核验异常，禁止打印</button>{{end}}{{else}}<button class="button primary" type="button" disabled>核验后打印</button>{{end}}</header>
+  <main class="archive-sheet">
+    <div class="archive-title"><div><p>城市古树迁移保护</p><h1>批准归档摘要</h1></div><span>已归档</span></div>
+    <dl class="archive-grid"><div><dt>古树编号</dt><dd>{{.Application.TreeCode}}</dd></div><div><dt>树种</dt><dd>{{.Application.Species}}</dd></div><div><dt>现位置</dt><dd>{{.Application.CurrentLocation}}</dd></div><div><dt>目标位置</dt><dd>{{.Application.TargetLocation}}</dd></div><div><dt>批准修订</dt><dd>R{{.Application.Archive.ApprovedRevision}}</dd></div><div><dt>归档时间</dt><dd>{{.Application.Archive.ArchivedAt.Format "2006-01-02 15:04 MST"}}</dd></div></dl>
+    <section><h2>完整性核验回执</h2>{{if .LatestIntegrityReceipt}}<p>{{if .LatestIntegrityReceipt.Passed}}核验通过{{else}}核验异常，正常打印已禁用{{end}} · {{.LatestIntegrityReceipt.ID}} · {{.LatestIntegrityReceipt.CheckedAt.Format "2006-01-02 15:04 MST"}}</p>{{range .LatestIntegrityReceipt.Results}}<div class="print-record"><strong>{{if .Passed}}通过{{else}}异常{{end}} · {{.Component}}</strong><span>{{.RecordID}} · {{.Message}}</span></div>{{end}}{{else}}<p>尚未执行完整性核验，正常打印已禁用。</p>{{end}}</section>
+    <section><h2>迁移事由</h2><p>{{.Application.MigrationReason}}</p></section>
+    <section><h2>现场证据清单</h2>{{range .Application.Archive.EvidenceItems}}<div class="print-record"><strong>{{.EvidenceID}}</strong><code>{{.Digest}}</code>{{range .Photos}}<span>{{.}}</span>{{end}}</div>{{end}}</section>
+    {{if .Application.Archive.WarningDispositions}}<section><h2>最终警示处置</h2>{{range .Application.Archive.WarningDispositions}}<div class="print-record"><strong>{{.FindingCode}} · {{.HandledBy}}</strong><span>{{.Action}} · {{.Note}}</span></div>{{end}}</section>{{end}}
+    {{if .Application.Archive.RectificationDiffs}}<section><h2>整改差异摘要</h2><ol>{{range .Application.Archive.RectificationDiffs}}<li>{{.}}</li>{{end}}</ol></section>{{end}}
+    <section><h2>状态时间线</h2><table><thead><tr><th>时间</th><th>操作</th><th>状态</th><th>经办人</th></tr></thead><tbody>{{range .Application.Archive.Timeline}}<tr><td>{{.At.Format "2006-01-02 15:04"}}</td><td>{{.Action}}</td><td>{{.To}}</td><td>{{.Actor}}</td></tr>{{end}}</tbody></table></section>
+    <footer><div>归档编号：{{.Application.Archive.ID}}</div><div>完整性摘要：<code>{{.Application.Archive.Digest}}</code></div></footer>
+  </main>
+  <script src="/static/archive.js" defer></script>
+</body>
+</html>

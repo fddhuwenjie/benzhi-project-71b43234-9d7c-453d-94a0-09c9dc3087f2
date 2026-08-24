@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>古树迁移保护方案核验台</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-block">
+      <span class="brand-mark" aria-hidden="true">古</span>
+      <div><h1>古树迁移保护方案核验台</h1><p>园林保护审查工作台</p></div>
+    </div>
+    <div class="top-actions">
+      <span id="connection" class="connection">服务检查中</span>
+      <button id="new-button" class="button primary" type="button"><span aria-hidden="true">＋</span> 新建申请</button>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <aside class="sidebar" aria-label="申请列表">
+      <div class="sidebar-heading">
+        <h2>迁移申请</h2><span id="application-count">0 项</span>
+      </div>
+      <label class="search"><span class="visually-hidden">搜索申请</span><input id="search" type="search" placeholder="搜索编号、树种或位置"></label>
+      <nav id="application-list" class="application-list"></nav>
+    </aside>
+
+    <section id="empty-state" class="empty-state">
+      <div class="empty-symbol" aria-hidden="true">档</div>
+      <h2>选择一项迁移申请</h2>
+      <p>左侧列表会按最近更新时间排列。</p>
+    </section>
+
+    <section id="detail" class="detail hidden" aria-live="polite">
+      <div class="detail-header">
+        <div><div class="eyebrow" id="detail-id"></div><h2 id="detail-title"></h2><p id="detail-subtitle"></p></div>
+        <div class="detail-meta"><span id="status-badge" class="status-badge"></span><span id="revision-badge" class="revision"></span></div>
+      </div>
+
+      <div class="tabbar" role="tablist">
+        <button class="tab active" data-tab="plan" type="button">申请方案</button>
+        <button class="tab" data-tab="assessment" type="button">规则核查 <span id="finding-count" class="count"></span></button>
+        <button class="tab" data-tab="evidence" type="button">现场证据</button>
+        <button class="tab" data-tab="review" type="button">复核与整改</button>
+        <button class="tab" data-tab="archive" type="button">归档摘要</button>
+      </div>
+
+      <div id="tab-plan" class="tab-panel active">
+        <div id="tree-code-notices"></div>
+        <div id="locked-snapshot-panel"></div>
+        <form id="draft-form" class="form-grid">
+          <div class="section-heading full"><h3>树木身份</h3><p>基础登记信息</p></div>
+          <label>古树编号<input name="tree_code" required></label>
+          <label>树种<input name="species" required></label>
+          <label class="full">现位置<input name="current_location" required></label>
+          <label class="full">目标位置<input name="target_location" required></label>
+          <label class="full">迁移原因<textarea name="migration_reason" rows="3" required></textarea></label>
+          <div class="section-heading full"><h3>时间与运输</h3><p>施工窗口及控制指标</p></div>
+          <label>开始日期<input name="window_start" type="date" required></label>
+          <label>结束日期<input name="window_end" type="date" required></label>
+          <label>胸径估值（厘米）<input name="trunk_diameter" type="number" min="1" step="0.1" required></label>
+          <label>根系保护半径（米）<input name="root_radius" type="number" min="0.1" step="0.1" required></label>
+          <label>预计运输时长（小时）<input name="transport_hours" type="number" min="0.1" max="24" step="0.1" required></label>
+          <div class="check-group"><label class="check"><input name="soil_ready" type="checkbox"> 目标地土壤就绪</label><label class="check"><input name="drainage_ready" type="checkbox"> 目标地排水就绪</label></div>
+          <div class="section-heading full"><h3>保护方案</h3><p>全过程措施</p></div>
+          <label class="full">树冠保护措施<textarea name="canopy" rows="2" required></textarea></label>
+          <label class="full">根球保护措施<textarea name="root_ball" rows="2" required></textarea></label>
+          <label class="full">运输保护措施<textarea name="transport" rows="2" required></textarea></label>
+          <label class="full">栽后养护方案<textarea name="care" rows="2" required></textarea></label>
+          <fieldset class="full material-fieldset"><legend>随附材料</legend><div id="materials" class="check-grid"></div></fieldset>
+          <div class="form-actions full"><button id="save-draft" class="button primary" type="submit">保存方案</button><button id="assess-from-plan" class="button secondary" type="button">执行规则核查</button></div>
+        </form>
+      </div>
+
+      <div id="tab-assessment" class="tab-panel">
+        <div class="panel-toolbar"><div><h3>保护规则核查</h3><p id="assessment-meta">尚未核查</p></div><button id="assess-button" class="button primary" type="button">重新核查</button></div>
+        <div id="assessment-summary" class="assessment-summary"></div>
+        <div class="finding-columns"><section><h4>阻断项</h4><div id="blocking-findings"></div></section><section><h4>警示项与处置</h4><div id="warning-findings"></div></section></div>
+        <div class="panel-footer"><button id="submit-button" class="button primary" type="button">提交并锁定版本</button><button id="resubmit-button" class="button primary hidden" type="button">整改版本重新提交</button></div>
+      </div>
+
+      <div id="tab-evidence" class="tab-panel">
+        <div class="panel-toolbar"><div><h3>现场核验记录</h3><p>定位、观察、保护措施及照片元数据</p></div></div>
+        <form id="evidence-form" class="form-grid compact">
+          <label>现场人员<input name="captured_by"></label>
+          <label>观察记录<input name="observations"></label>
+          <label>纬度<input name="latitude" type="number" min="-90" max="90" step="0.000001"></label>
+          <label>经度<input name="longitude" type="number" min="-180" max="180" step="0.000001"></label>
+          <fieldset class="full material-fieldset"><legend>保护措施确认</legend><div id="measure-checks" class="check-grid"></div></fieldset>
+          <div class="full photo-row"><label>照片文件名<input name="photo_name"></label><label>照片类别<select name="photo_category"><option>迁移前全景</option><option>根系保护</option><option>树冠保护</option><option>目标树穴</option></select></label><label>拍摄时间<input name="photo_taken_at" type="datetime-local"></label><button id="add-photo" class="button secondary" type="button">添加照片</button></div>
+          <div id="site-photo-list" class="record-list full"></div>
+          <div id="evidence-progress" class="assessment-summary full"></div>
+          <div class="form-actions full"><button class="button secondary" type="submit">暂存现场证据</button><button id="confirm-evidence" class="button primary" type="button">确认齐套并提交复核</button></div>
+        </form>
+        <div id="evidence-history" class="record-list"></div>
+      </div>
+
+      <div id="tab-review" class="tab-panel">
+        <div class="panel-toolbar"><div><h3>专家复核</h3><p>结构化结论与整改对照</p></div></div>
+        <form id="review-form" class="form-grid compact">
+          <label>复核专家<input name="reviewer" required></label>
+          <label>复核结论<select name="outcome"><option value="approved">批准归档</option><option value="rectification">退回整改</option></select></label>
+          <label class="full">复核意见<textarea name="comments" rows="3" required></textarea></label>
+          <div id="review-snapshot" class="assessment-summary full"></div>
+          <div id="review-matrix" class="rectification-items full"></div>
+          <div class="form-actions full"><button class="button primary" type="submit">提交复核结论</button></div>
+        </form>
+        <form id="rectification-form" class="hidden"><div id="rectification-items" class="rectification-items"></div><div class="form-actions"><button class="button primary" type="submit">提交全部补正</button></div></form>
+        <div id="review-history" class="record-list"></div>
+      </div>
+
+      <div id="tab-archive" class="tab-panel"><div id="archive-content" class="archive-content"></div></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
