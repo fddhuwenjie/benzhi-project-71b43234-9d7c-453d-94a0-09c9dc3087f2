@@ -109,13 +109,13 @@ func (s *Store) Save(expectedRevision int, application *domain.MigrationApplicat
 	if err != nil {
 		return CommandResult{}, err
 	}
+	if data.Application.Revision != expectedRevision {
+		return CommandResult{}, &ConflictError{Expected: expectedRevision, Actual: data.Application.Revision}
+	}
 	if requestID != "" {
 		if previous, ok := data.Commands[commandKey(operation, requestID)]; ok {
 			return previous, nil
 		}
-	}
-	if data.Application.Revision != expectedRevision {
-		return CommandResult{}, &ConflictError{Expected: expectedRevision, Actual: data.Application.Revision}
 	}
 	if duplicate, err := s.findActiveDuplicateLocked(application.TreeCode, application.ID); err != nil {
 		return CommandResult{}, err
