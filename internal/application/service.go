@@ -15,6 +15,12 @@ import (
 type Service struct {
 	repository Repository
 	clock      Clock
+	detail     detailProjection
+}
+
+type detailProjection struct {
+	application *domain.MigrationApplication
+	events      []persistence.EventRecord
 }
 
 func NewService(repository Repository, clock Clock) *Service {
@@ -58,11 +64,13 @@ func (s *Service) Get(id string) (DetailView, error) {
 	if err != nil {
 		return DetailView{}, translateRepositoryError(err)
 	}
+	s.detail.application = app
 	events, err := s.repository.Events(id)
 	if err != nil {
 		return DetailView{}, err
 	}
-	return s.buildDetail(app, events)
+	s.detail.events = events
+	return s.buildDetail(s.detail.application, s.detail.events)
 }
 
 func (s *Service) buildDetail(app *domain.MigrationApplication, events []persistence.EventRecord) (DetailView, error) {
