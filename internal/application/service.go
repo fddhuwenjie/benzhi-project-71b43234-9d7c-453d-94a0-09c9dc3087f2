@@ -277,7 +277,7 @@ func (s *Service) mutate(id, operation string, meta CommandMeta, change func(*do
 		return DetailView{}, fmt.Errorf("编码命令结果: %w", err)
 	}
 	if _, err := s.repository.Save(before, app, operation, meta.RequestID, raw); err != nil {
-		return DetailView{}, translateRepositoryError(err)
+		return DetailView{}, translateRepositoryError(newRepositoryOperationError(operation, err))
 	}
 	return s.Get(id)
 }

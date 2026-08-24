@@ -2,11 +2,25 @@ package application
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	"benzhi-project-71b43234-9d7c-453d-94a0-09c9dc3087f2/internal/domain"
 	"benzhi-project-71b43234-9d7c-453d-94a0-09c9dc3087f2/internal/persistence"
 )
+
+type repositoryOperationError struct {
+	operation string
+	message   string
+}
+
+func newRepositoryOperationError(operation string, err error) error {
+	return &repositoryOperationError{operation: operation, message: err.Error()}
+}
+
+func (e *repositoryOperationError) Error() string {
+	return fmt.Sprintf("持久化操作 %s 失败: %s", e.operation, e.message)
+}
 
 func validateMeta(meta CommandMeta) error {
 	if meta.ExpectedRevision < 1 {
