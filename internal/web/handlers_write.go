@@ -184,7 +184,7 @@ func (s *Server) ArchiveIntegrityHandler(w http.ResponseWriter, r *http.Request)
 		handleError(w, err)
 		return
 	}
-	receipt, err := s.service.VerifyArchive(r.PathValue("id"), command)
+	receipt, err := s.service.VerifyArchiveContext(r.Context(), r.PathValue("id"), command)
 	if err != nil {
 		handleError(w, err)
 		return

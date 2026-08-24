@@ -1,6 +1,7 @@
 package application
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -225,6 +226,13 @@ func (s *Service) Resubmit(id string, command ResubmitCommand) (DetailView, erro
 }
 
 func (s *Service) VerifyArchive(id string, command VerifyArchiveCommand) (domain.ArchiveIntegrityReceipt, error) {
+	return s.VerifyArchiveContext(context.Background(), id, command)
+}
+
+func (s *Service) VerifyArchiveContext(ctx context.Context, id string, command VerifyArchiveCommand) (domain.ArchiveIntegrityReceipt, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.ArchiveIntegrityReceipt{}, err
+	}
 	if strings.TrimSpace(command.RequestID) == "" {
 		return domain.ArchiveIntegrityReceipt{}, domain.NewValidation("request_id_required", "request_id", "核验请求必须提供请求标识")
 	}
