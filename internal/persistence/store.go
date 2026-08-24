@@ -224,7 +224,12 @@ func (s *Store) commit(path string, data snapshotData, operation, requestID stri
 	}
 	s.sequence++
 	event := EventRecord{Sequence: s.sequence, ApplicationID: data.Application.ID, Revision: data.Application.Revision, Operation: operation, RequestID: requestID, Status: data.Application.Status, At: time.Now().UTC(), SnapshotDigest: digest}
-	return s.appendEvent(event)
+	if err := s.appendEvent(event); err != nil {
+		// 清理未完成提交，避免没有对应事件的快照继续留在活动目录。
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
 }
 
 func (s *Store) appendEvent(event EventRecord) error {
