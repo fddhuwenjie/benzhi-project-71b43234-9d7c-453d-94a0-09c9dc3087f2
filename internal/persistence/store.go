@@ -16,19 +16,26 @@ import (
 )
 
 type Store struct {
-	dir       string
-	snapshots string
-	eventPath string
-	receipts  string
-	mu        sync.Mutex
-	sequence  int64
+	dir          string
+	snapshots    string
+	eventPath    string
+	receipts     string
+	receiptCache map[string]*domain.ArchiveIntegrityReceipt
+	mu           sync.Mutex
+	sequence     int64
 }
 
 func Open(dir string) (*Store, error) {
 	if strings.TrimSpace(dir) == "" {
 		return nil, fmt.Errorf("数据目录不能为空")
 	}
-	s := &Store{dir: dir, snapshots: filepath.Join(dir, "snapshots"), eventPath: filepath.Join(dir, "events.jsonl"), receipts: filepath.Join(dir, "receipts")}
+	s := &Store{
+		dir:          dir,
+		snapshots:    filepath.Join(dir, "snapshots"),
+		eventPath:    filepath.Join(dir, "events.jsonl"),
+		receipts:     filepath.Join(dir, "receipts"),
+		receiptCache: make(map[string]*domain.ArchiveIntegrityReceipt),
+	}
 	if err := os.MkdirAll(s.snapshots, 0o700); err != nil {
 		return nil, fmt.Errorf("创建快照目录: %w", err)
 	}
@@ -141,12 +148,19 @@ func (s *Store) SaveReceipt(receipt domain.ArchiveIntegrityReceipt) error {
 		return fmt.Errorf("编码核验回执: %w", err)
 	}
 	path := filepath.Join(s.receipts, receipt.ApplicationID+"-"+receipt.ID+".json")
-	return atomicWrite(path, append(raw, '\n'))
+	if err := atomicWrite(path, append(raw, '\n')); err != nil {
+		return err
+	}
+	s.receiptCache[receipt.ApplicationID] = &receipt
+	return nil
 }
 
 func (s *Store) LatestReceipt(applicationID string) (*domain.ArchiveIntegrityReceipt, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if cached, ok := s.receiptCache[applicationID]; ok {
+		return cached, nil
+	}
 	entries, err := os.ReadDir(s.receipts)
 	if err != nil {
 		return nil, err
@@ -168,6 +182,9 @@ func (s *Store) LatestReceipt(applicationID string) (*domain.ArchiveIntegrityRec
 			copy := receipt
 			latest = &copy
 		}
+	}
+	if latest != nil {
+		s.receiptCache[applicationID] = latest
 	}
 	return latest, nil
 }
