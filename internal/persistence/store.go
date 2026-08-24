@@ -22,6 +22,7 @@ type Store struct {
 	receipts  string
 	mu        sync.Mutex
 	sequence  int64
+	eventFile *os.File
 }
 
 func Open(dir string) (*Store, error) {
@@ -228,23 +229,22 @@ func (s *Store) commit(path string, data snapshotData, operation, requestID stri
 }
 
 func (s *Store) appendEvent(event EventRecord) error {
-	file, err := os.OpenFile(s.eventPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("打开事件日志: %w", err)
+	if s.eventFile == nil {
+		file, err := os.OpenFile(s.eventPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return fmt.Errorf("打开事件日志: %w", err)
+		}
+		s.eventFile = file
 	}
 	encoded, err := json.Marshal(event)
 	if err == nil {
-		_, err = file.Write(append(encoded, '\n'))
+		_, err = s.eventFile.Write(append(encoded, '\n'))
 	}
 	if err == nil {
-		err = file.Sync()
+		err = s.eventFile.Sync()
 	}
-	closeErr := file.Close()
 	if err != nil {
 		return fmt.Errorf("写入事件日志: %w", err)
-	}
-	if closeErr != nil {
-		return fmt.Errorf("关闭事件日志: %w", closeErr)
 	}
 	return nil
 }
