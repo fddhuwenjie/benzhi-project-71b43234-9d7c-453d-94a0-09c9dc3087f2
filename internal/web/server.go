@@ -1,8 +1,10 @@
 package web
 
 import (
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"benzhi-project-71b43234-9d7c-453d-94a0-09c9dc3087f2/internal/application"
 )
@@ -10,16 +12,18 @@ import (
 const maxRequestBody = 1 << 20
 
 type Server struct {
-	service *application.Service
-	logger  *slog.Logger
-	mux     *http.ServeMux
+	service    *application.Service
+	logger     *slog.Logger
+	mux        *http.ServeMux
+	rangeMu    sync.Mutex
+	rangeFiles map[string]fs.File
 }
 
 func NewServer(service *application.Service, logger *slog.Logger) *Server {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	s := &Server{service: service, logger: logger, mux: http.NewServeMux()}
+	s := &Server{service: service, logger: logger, mux: http.NewServeMux(), rangeFiles: make(map[string]fs.File)}
 	s.routes()
 	return s
 }

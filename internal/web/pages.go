@@ -2,7 +2,9 @@ package web
 
 import (
 	"embed"
+	"errors"
 	"html/template"
+	"io"
 	"io/fs"
 	"net/http"
 	"path/filepath"
@@ -12,6 +14,41 @@ import (
 var assets embed.FS
 
 var archiveTemplate = template.Must(template.ParseFS(assets, "static/archive.html"))
+
+type cachedRangeFile struct {
+	fs.File
+	seeker io.ReadSeeker
+	closed bool
+}
+
+func (f *cachedRangeFile) Read(p []byte) (int, error) {
+	if f.closed {
+		return 0, fs.ErrClosed
+	}
+	return f.seeker.Read(p)
+}
+
+func (f *cachedRangeFile) Seek(offset int64, whence int) (int64, error) {
+	if f.closed {
+		return 0, fs.ErrClosed
+	}
+	return f.seeker.Seek(offset, whence)
+}
+
+func (f *cachedRangeFile) Stat() (fs.FileInfo, error) {
+	if f.closed {
+		return nil, fs.ErrClosed
+	}
+	return f.File.Stat()
+}
+
+func (f *cachedRangeFile) Close() error {
+	if f.closed {
+		return errors.New("cached range file already closed")
+	}
+	f.closed = true
+	return f.File.Close()
+}
 
 func (s *Server) WorkbenchHandler(w http.ResponseWriter, _ *http.Request) {
 	content, err := assets.ReadFile("static/index.html")
@@ -29,12 +66,50 @@ func (s *Server) StaticHandler(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if r.Header.Get("Range") != "" {
+		s.serveRangeAsset(w, r, name)
+		return
+	}
 	staticFS, err := fs.Sub(assets, "static")
 	if err != nil {
 		handleError(w, err)
 		return
 	}
 	http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))).ServeHTTP(w, r)
+}
+
+func (s *Server) serveRangeAsset(w http.ResponseWriter, r *http.Request, name string) {
+	s.rangeMu.Lock()
+	defer s.rangeMu.Unlock()
+	file := s.rangeFiles[name]
+	if file == nil {
+		opened, err := assets.Open("static/" + name)
+		if err != nil {
+			handleError(w, err)
+			return
+		}
+		seeker, ok := opened.(io.ReadSeeker)
+		if !ok {
+			_ = opened.Close()
+			handleError(w, fs.ErrInvalid)
+			return
+		}
+		cached := &cachedRangeFile{File: opened, seeker: seeker}
+		s.rangeFiles[name] = cached
+		file = cached
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		handleError(w, err)
+		return
+	}
+	seeker, ok := file.(io.ReadSeeker)
+	if !ok {
+		handleError(w, fs.ErrInvalid)
+		return
+	}
+	http.ServeContent(w, r, name, info.ModTime(), seeker)
 }
 
 func (s *Server) ArchivePageHandler(w http.ResponseWriter, r *http.Request) {
